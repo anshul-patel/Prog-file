@@ -1,0 +1,52 @@
+echo '' >testlog.txt
+mkdir /app/BNS/PFAHDEV/inbound/ap/tmp
+mkdir /app/BNS/PFAHDEV/inbound/ap/tmp/tmp
+directory_name='/app/BNS/PFAHDEV/inbound/ap' 
+echo $directory_name >>testlog.txt
+
+cd $directory_name
+tmpdir_name=$directory_name/tmp
+cp TABS* $directory_name/tmp
+
+if [ -d "$tmpdir_name" ];
+then
+    echo "Directory exist"
+     
+     for i in `find $tmpdir_name/TABS*`
+        do
+            sed -i 1,3d $i >>$XXBNS_TOP/bin/testlog.txt
+            echo "first rows deleted from file" $i >>$XXBNS_TOP/bin/testlog.txt
+done
+
+for i in `find $directory_name -size 0`
+   do
+   mv $i $tmpdir_name/tmp
+   echo "Zero-sized move to tmp inside tmp" $i >>$XXBNS_TOP/bin/testlog.txt
+   zeroBytefile=1
+  done
+
+echo $zeroBytefile
+
+if [ $zeroBytefile -eq 1 ];
+then
+cd  $tmpdir_name/tmp
+        for i in `find TABS*`
+        do
+        arc_f_name=${i}_`date +"%Y%m%d_%H%M%S"`
+         mv /app/BNS/PFAHDEV/inbound/ap/$i /app/BNS/PFAHDEV/Archive/ap/$arc_f_name
+         echo "Zero byte file moved to archive " $i >>$XXBNS_TOP/bin/testlog.txt
+         rm /app/BNS/PFAHDEV/inbound/ap/tmp/tmp/$i
+        done
+		cd /app/BNS/PFAHDEV/inbound/ap/tmp/
+        rmdir tmp
+	rm TABS*
+        cd /app/BNS/PFAHDEV/inbound/ap
+        rmdir tmp
+else
+    echo "No file with zero byte." >>$XXBNS_TOP/bin/testlog.txt
+
+fi
+ 
+else
+    echo "Directory does not exist" >>$XXBNS_TOP/bin/testlog.txt
+fi
