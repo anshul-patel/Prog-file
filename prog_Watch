@@ -1,0 +1,253 @@
+#!/bin/ksh
+. ~/.bash_profile
+echo "Starting File Watcher script"
+echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+
+set -e
+
+exe_filepath=$0
+usrpwd=$1
+userid=$2
+username=$3
+current_reqid=$4
+src=$5
+l_inboundpath=$6
+no_of_minutes=$7
+
+#instance=$TWO_TASK
+dbi=$TWO_TASK
+sqluidpwd=$usrpwd
+
+typeset -u db=$inst
+typeset -l inst=$inst
+typeset -u src_uc=$src
+typeset -l src_lc=$src
+
+fail_email_list1=`sqlplus -s "$sqluidpwd"<<EOF
+      set numwidth 20
+      set heading off
+      set feedback off
+      set verify off
+      set pagesize 0
+SELECT description||',' from fnd_lookup_values 
+WHERE lookup_type='BNS EMAIL SETUP'
+AND meaning like '$src_uc%' AND meaning NOT like '$src_uc'||'-EXCEP%' AND meaning NOT like '$src_uc'||'-MAN%'
+AND SYSDATE >=NVL(START_DATE_ACTIVE,SYSDATE) AND SYSDATE<=NVL(END_DATE_ACTIVE,SYSDATE) 
+AND enabled_flag='Y';
+EOF`
+
+fail_email_list=`echo $fail_email_list1 | sed 's/.$//'`
+
+l_chr_sender="FAH_${instance}_SUPPORT@scotiabank.com"
+
+echo "Failure Email's will be sent to : "$fail_email_list
+
+NEWLINE=$'\n'
+
+#TABS_IRE-20210303154019.ctl
+
+### Get the current business date
+busdate=`sqlplus -s "$sqluidpwd"<<ENDOFSQL
+      set numwidth 20
+      set heading off
+      set feedback off
+      set verify off
+      set pagesize 0
+select to_char(curbusdate,'YYYYMMDD') from xxbns_ire_proc_dates where source='$src_uc';
+ENDOFSQL`
+##
+echo "Current business date: " $busdate
+### Get the file name prefix
+filenameprefix=`sqlplus -s "$sqluidpwd"<<ENDOFSQL
+      set numwidth 20
+      set heading off
+      set feedback off
+      set verify off
+      set pagesize 0
+select FILENAME_PREFIX||to_char(curbusdate,'YYYYMMDD') from xxbns_ire_proc_dates where source='$src_uc';
+ENDOFSQL`
+##
+echo "File name prefix: " $filenameprefix
+## Get the source name convention 
+src_code=`sqlplus -s "$sqluidpwd"<<ENDOFSQL
+      set numwidth 20
+      set heading off
+      set feedback off
+      set verify off
+      set pagesize 0
+select SRC_CODE_CONVENTION from xxbns_ire_proc_dates where source='$src_uc';
+ENDOFSQL`
+##
+echo "Source: " $src_code
+#----------------------------------------------------------
+# Wait for arrival of file or expiry of wait time.
+#----------------------------------------------------------
+
+current_hhmm=$(date +%m%d%H%M)
+SleepTime=60 
+WaitIsOver="False"
+i=0
+
+wait_hhmm_l=0300
+wait_hhmm_h=0400
+
+echo $l_inboundpath": is Inbound folder."
+echo "Expected Data and Control File prefix is : "$filenameprefix
+#
+echo "Wait : "$WaitIsOver $current_hhmm $wait_hhmm_l $wait_hhmm_h
+#
+while [[ $WaitIsOver = "False" ]]; do
+if [[ ${current_hhmm} -le ${wait_hhmm_l} || ${current_hhmm} -ge ${wait_hhmm_h} ]]; then
+
+   export file_count_d=`ls $l_inboundpath |grep ${filenameprefix}|grep txt |wc -l`
+   export file_count_c=`ls $l_inboundpath |grep ${filenameprefix}|grep ctl |wc -l`
+
+	echo "File count: "$file_count_d $file_count_c
+
+   if [[ "$file_count_d" -eq 1 && "$file_count_c" -eq 1 ]] ; then
+	  data_file=`ls $l_inboundpath |grep ${filenameprefix}|grep txt`
+	  control_file=`ls $l_inboundpath |grep ${filenameprefix}|grep ctl`
+     
+     echo "Data file name:"$data_file
+     echo "Control file name:"$control_file
+
+     recCountCtrl=`cat ${l_inboundpath}/${control_file} | awk 'NR!=1' | cut -d'|' -f 3`
+	  RecCount=`cat ${l_inboundpath}/${data_file} |wc -l` 
+	  ttlRecCount="$(($RecCount-3))"
+
+	  echo rec_count : $ttlRecCount
+	  echo cntrl count : $recCountCtrl
+	  if [ $ttlRecCount -eq $recCountCtrl ]; then
+		 WaitIsOver="True"
+	#
+	echo "WaitIsOver:" $recCountCtrl
+         if [[ $ttlRecCount -eq 0 && $recCountCtrl -eq 0 ]]; then
+            echo "Source files are blank"
+echo "Hi Team, ${NEWLINE}Source file from ${src_code} is blank. No data to be processed for the day ${NEWLINE}${NEWLINE}Thank you ${NEWLINE}${NEWLINE}FAH Ireland Support ${NEWLINE}Please do not respond to this email " | mailx -r $l_chr_sender -s "Ireland ${src_code} : ${inst} Source file is blank. No data to be processed." ${fail_email_list}
+            exit 0
+         fi
+		 break 
+	  fi
+   fi
+   #
+   echo "Count of files:" $file_count_d $file_count_c
+   #
+   if [[ ${file_count_d} -gt 1 && ${file_count_c} -gt 1 ]] ; then
+
+      data_file=`ls -s -1 $l_inboundpath |grep ${filenameprefix}|grep txt | head -1 | cut -d" " -f2`
+      control_file_full=`ls -s -1 $l_inboundpath |grep ${filenameprefix}|grep ctl | head -1`
+      control_file=`echo ${control_file_full} | cut -d" " -f2`
+     
+     echo "Data file name:"$data_file
+     echo "Control file name:"$control_file
+
+     recCountCtrl=`cat ${l_inboundpath}/${control_file} | awk 'NR!=1' | cut -d'|' -f 3`
+	  RecCount=`cat ${l_inboundpath}/${data_file} |wc -l` 
+	  ttlRecCount="$(($RecCount-3))"
+
+	  echo rec_count : $ttlRecCount
+	  echo cntrl count : $recCountCtrl
+	  if [ $ttlRecCount -eq $recCountCtrl ]; then
+		 WaitIsOver="True"
+         if [[ $ttlRecCount -eq 0 && $recCountCtrl -eq 0 ]]; then
+            echo "Source files are blank"
+echo "Hi Team, ${NEWLINE}Source file from ${src_code} is blank. No data to be processed for the day ${NEWLINE}${NEWLINE}Thank you ${NEWLINE}${NEWLINE}FAH Ireland Support ${NEWLINE}Please do not respond to this email " | mailx -r $l_chr_sender -s "Ireland ${src_code} : ${inst} Source file is blank. No data to be processed." ${fail_email_list}
+            exit 0
+         fi
+		 break 
+	  fi
+   fi
+		
+   echo "WaitIsOver: $WaitIsOver"
+   
+   current_hhmm=$(date +%H%M)  
+   echo "current_hhmm: $current_hhmm"
+echo "Current loop "$i
+echo "No of minutes "${no_of_minutes}
+else
+   current_hhmm=$(date +%H%M)  
+   echo "Outside of polling window: 3-4 AM EST"
+   echo "current_hhmm: $current_hhmm"
+echo "Current loop "$i
+echo "No of minutes "${no_of_minutes}
+fi
+ 
+   if [ $i -ge ${no_of_minutes} ]; then
+	  WaitIsOver="True"
+	# calendar_name="THOR_PROC"
+# holiday_flag=`sqlplus -s "$sqluid"/"$sqlpwd"@"$db"<<ENDOFSQL
+	  # set numwidth 20
+	  # set heading off
+	  # set feedback off
+	  # set verify off
+	  # set pagesize 0
+# select nvl(gtd.attribute1,'N') from GL_TRANSACTION_DATES gtd, GL_TRANSACTION_CALENDAR gc where gc.transaction_calendar_id = gtd.transaction_calendar_id and to_date(transaction_date,'DD-MM-YY') = to_date('$cur_bus_date','DD-MM-YY') and gc.name = '$calendar_name';
+# ENDOFSQL`
+	
+	# echo "Holiday : "$holiday_flag
+
+	# if [ "$holiday_flag" == 'Y' ]; then
+	# echo $cur_bus_date" is a holiday for "$src_lc
+	# cat /bns/batch/control/xxbns_failure_email_body.txt | mailx -r $l_chr_sender -s "${src_uc} : ${inst} Holiday for the source." ${fail_email_list}
+	   # exit 1
+	# elif [ "$holiday_flag" == 'N' ]; then
+   
+   echo "File faild to show up in time. Operation aborted."
+   echo "Pushpa"
+#echo "Hi Team, ${NEWLINE}Source file from ${src_code} was not made available by the SLA end time. Please relaunch once the file arrives on FAH servers ${NEWLINE}${NEWLINE}Thank you ${NEWLINE} ${NEWLINE}FAH Ireland Support ${NEWLINE}Please do not respond to this email " | mailx -r $l_chr_sender -s "Ireland ${src_code} : ${inst} File failed to show up in time. Operation aborted." ${fail_email_list}
+		  exit 11
+	fi
+   sleep $SleepTime
+   i=$((i + 1))
+   ###(( elapsedTime += $SleepTime ))
+done
+
+sqlplus -s "$sqluidpwd"<<ENDOFSQL
+EXECUTE XXBNS_FAH_IRE_PKG.insert_into_summary_tab ('$busdate','$src_uc','${data_file}','${control_file}');
+COMMIT;
+ENDOFSQL
+rc="$?"
+
+if [[ $rc -ne 0 ]]; then
+   echo "Couldn't load Process summary table. Re-launch the file watcher"
+echo "Hi Team, ${NEWLINE}Process summary table load failed for source ${src_code}. It is possible that the file was already loaded once. Pleae check logs and/or contact FAH Support ${NEWLINE}${NEWLINE}Thank you ${NEWLINE} ${NEWLINE}FAH Ireland Support ${NEWLINE}Please do not respond to this email " | mailx -r $l_chr_sender -s "Ireland ${src_code} : ${inst} Could not load Process summary table. Re-launch the file watcher" ${fail_email_list}
+   exit 13
+fi
+
+echo "Files arrived. Kicking off batch process"
+
+exit 0
+
+# l_req_id=`sqlplus -s "$sqluidpwd" @$XXBNS_TOP/sql/xxbns_ire_bre_thor_kickoff_script.sql $src_uc`
+
+# if [ $l_req_id == 0 ]
+# then
+   # echo "Program not launched 1"
+# echo "Hi Team, ${NEWLINE}There is a processing failure in FAH. Could not launch the main loader program for ${src_code}. Check the logs for the accurate error ${NEWLINE}${NEWLINE}Thank you ${NEWLINE} ${NEWLINE}FAH Ireland Support ${NEWLINE}Please do not respond to this email " | mailx -r $l_chr_sender -s "Ireland ${src_code} : ${inst} Could not launch the loader process" ${fail_email_list}
+# sqlplus -s "$sqluidpwd"<<ENDOFSQL
+   # UPDATE XXBNS_IRE_FAH_PROCESS_SUMMARY
+      # SET process_status = 'ERROR'
+    # WHERE process_status = 'FILE_FOUND'
+      # AND source = '$src_uc'
+      # AND TRUNC(file_Date) = (SELECT TRUNC(curbusdate) FROM XXBNS_IRE_PROC_DATES WHERE source = '$src_uc');
+# COMMIT;
+# ENDOFSQL
+   # exit 13
+# fi
+
+# if [ $l_req_id == -9999999 ]
+# then
+   # echo "Program not launched 2"
+# echo "Hi Team, ${NEWLINE}There is a processing failure in FAH. Could not launch the main loader program for ${src_code}. Check the logs for the accurate error ${NEWLINE}${NEWLINE}Thank you ${NEWLINE} ${NEWLINE}FAH Ireland Support ${NEWLINE}Please do not respond to this email " | mailx -r $l_chr_sender -s "Ireland ${src_code} : ${inst} Could not launch the loader process" ${fail_email_list}
+# sqlplus -s "$sqluidpwd"<<ENDOFSQL
+   # UPDATE XXBNS_IRE_FAH_PROCESS_SUMMARY
+      # SET process_status = 'ERROR'
+    # WHERE process_status = 'FILE_FOUND'
+      # AND source = '$src_uc'
+      # AND TRUNC(file_Date) = (SELECT TRUNC(curbusdate) FROM XXBNS_IRE_PROC_DATES WHERE source = '$src_uc');
+# COMMIT;
+# ENDOFSQL
+   # exit 13
+# fi
+
+# echo $l_req_id
