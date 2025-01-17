@@ -1,7 +1,10 @@
 echo '' >testlog.txt
-mkdir /app/BNS/PFAHDEV/inbound/ap/tmp
-mkdir /app/BNS/PFAHDEV/inbound/ap/tmp/tmp
-directory_name='/app/BNS/PFAHDEV/inbound/ap' 
+temp1='/app/BNS/PFAHDEV/inbound/thor/ire/tabs/tmp'
+temp2='/app/BNS/PFAHDEV/inbound/thor/ire/tabs/tmp/tmp'
+arc_dir='/app/BNS/PFAHDEV/Archive/IRE/THOR/TABS'
+mkdir $temp1
+mkdir $temp2
+directory_name='/app/BNS/PFAHDEV/inbound/thor/ire/tabs' 
 echo $directory_name >>testlog.txt
 
 cd $directory_name
@@ -12,7 +15,7 @@ if [ -d "$tmpdir_name" ];
 then
     echo "Directory exist"
      
-     for i in `find $tmpdir_name/TABS*`
+     for i in `find $tmpdir_name/TABS*txt`
         do
             sed -i 1,3d $i >>$XXBNS_TOP/bin/testlog.txt
             echo "first rows deleted from file" $i >>$XXBNS_TOP/bin/testlog.txt
@@ -30,17 +33,24 @@ echo $zeroBytefile
 if [ $zeroBytefile -eq 1 ];
 then
 cd  $tmpdir_name/tmp
-        for i in `find TABS*`
+        for i in `find TABS*txt`
         do
-        arc_f_name=${i}_`date +"%Y%m%d_%H%M%S"`
-         mv /app/BNS/PFAHDEV/inbound/ap/$i /app/BNS/PFAHDEV/Archive/ap/$arc_f_name
+        NAME=`echo "$i" | cut -d'.' -f1`
+        echo $NAME >>$XXBNS_TOP/bin/testlog.txt
+        cd $directory_name
+         for rm_file_pre in `find $NAME*`
+        do
+
+         arc_f_name=$rm_file_pre_`date +"%Y%m%d_%H%M%S"`
+         mv $directory_name/$rm_file_pre $arc_dir/$arc_f_name
+       done
          echo "Zero byte file moved to archive " $i >>$XXBNS_TOP/bin/testlog.txt
-         rm /app/BNS/PFAHDEV/inbound/ap/tmp/tmp/$i
+         rm $temp2/$i
         done
-		cd /app/BNS/PFAHDEV/inbound/ap/tmp/
-        rmdir tmp
+	cd $temp1
+        rmdir $temp2
 	rm TABS*
-        cd /app/BNS/PFAHDEV/inbound/ap
+        cd $directory_name
         rmdir tmp
 else
     echo "No file with zero byte." >>$XXBNS_TOP/bin/testlog.txt
